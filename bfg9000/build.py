@@ -4,8 +4,9 @@ from itertools import chain
 from .arguments.parser import ArgumentParser
 from .builtins import builtin, init as builtin_init
 from .build_inputs import BuildInputs
-from .path import exists, Path, pushd, Root
 from .iterutils import listify
+from .path import exists, Path, pushd, Root
+from .shell import CalledProcessError, Mode
 from .tools import init as tools_init
 
 bfgfile = 'build.bfg'
@@ -75,6 +76,23 @@ def _execute_options(env, parent=None, usage='parse'):
         if e.errno != errno.ENOENT:
             raise
         return parser, []
+
+
+def resolve_packages(env, toolchain=None):
+    mopack = Path('mopack.yml', Root.srcdir)
+    if exists(mopack, env.base_dirs):
+        try:
+            env.tool('mopack').run(
+                'resolve', mopack, directory=env.builddir,
+                toolchain=env.toolchain.path, env=env.initial_variables,
+                env_update=False, stdout=Mode.normal
+            )
+            return [mopack]
+        except CalledProcessError as e:
+            # A return code of 3 means this was a nested invocation of mopack.
+            if e.returncode != 3:
+                raise
+    return []
 
 
 def fill_user_help(env, parent):

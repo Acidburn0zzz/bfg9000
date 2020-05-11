@@ -53,7 +53,7 @@ class Toolchain:
 
 
 class Environment:
-    version = 14
+    version = 15
     envfile = '.bfg_environ'
 
     Mode = shell.Mode
@@ -77,6 +77,7 @@ class Environment:
         self.builddir = builddir
         self.install_dirs = {}
         self.toolchain = Toolchain()
+        self.mopack = []
 
         self.initial_variables = dict(os.environ)
         self.init_variables()
@@ -195,6 +196,7 @@ class Environment:
                         for k, v in self.install_dirs.items()
                     },
                     'toolchain': self.toolchain.to_json(),
+                    'mopack': [i.to_json() for i in self.mopack],
 
                     'library_mode': self.library_mode,
                     'extra_args': self.extra_args,
@@ -271,6 +273,10 @@ class Environment:
                 data[i] = {'genus': genus, 'species': species,
                            'arch': platform.machine()}
 
+        # v15 adds mopack file list.
+        if version < 15:
+            data['mopack'] = []
+
         # Now that we've upgraded, initialize the Environment object.
         env = Environment.__new__(Environment)
 
@@ -291,6 +297,7 @@ class Environment:
             for k, v in data['install_dirs'].items()
         }
         env.toolchain = Toolchain.from_json(data['toolchain'])
+        env.mopack = [Path.from_json(i) for i in data['mopack']]
         env.library_mode = LibraryMode(*data['library_mode'])
 
         return env

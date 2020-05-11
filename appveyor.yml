@@ -132,7 +132,8 @@ install:
     if defined MINGW_PATH gendef lib\libogg.dll &
     dlltool -U -d libogg.def -l lib\libogg.a & del libogg.def
 build_script:
-  - pip install codecov .[test]
+  - git clone https://github.com/jimporter/mopack.git
+  - pip install ./mopack codecov .[test]
 test_script:
   - python setup.py coverage -q
 on_success:

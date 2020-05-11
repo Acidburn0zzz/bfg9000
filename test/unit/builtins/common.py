@@ -12,8 +12,10 @@ class AlwaysEqual:
 
 
 class BuiltinTest(TestCase):
+    clear_variables = False
+
     def setUp(self):
-        self.env = make_env()
+        self.env = make_env(clear_variables=self.clear_variables)
         self.build = BuildInputs(self.env, Path('build.bfg', Root.srcdir))
         self.context = builtin.BuildContext(self.env, self.build, None)
         self.context.path_stack.append(

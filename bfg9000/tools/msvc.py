@@ -2,7 +2,7 @@ import os.path
 import re
 from itertools import chain
 
-from . import pkg_config
+from . import mopack, pkg_config
 from .common import BuildCommand, Builder, check_which, library_macro
 from .. import log, options as opts, safe_str, shell
 from ..arguments.windows import ArgumentParser
@@ -49,11 +49,11 @@ class MsvcBuilder(Builder):
                 origin = os.path.dirname(i)
         link_command = check_which(
             env.getvar(ldinfo.var('linker'), os.path.join(origin, 'link')),
-            env.variables, kind='dynamic linker'.format(self.lang)
+            env.variables, kind='{} dynamic linker'.format(self.lang)
         )
         lib_command = check_which(
             env.getvar(arinfo.var('linker'), os.path.join(origin, 'lib')),
-            env.variables, kind='static linker'.format(self.lang)
+            env.variables, kind='{} static linker'.format(self.lang)
         )
 
         cflags_name = langinfo.var('flags').lower()
@@ -574,24 +574,51 @@ class MsvcPackageResolver:
         raise PackageResolutionError("unable to find library '{}'"
                                      .format(name))
 
+    def _resolve_path(self, name, format, kind, headers, lib_names,
+                      include_path=None, library_path=None):
+        if lib_names is default_sentinel:
+            lib_names = self.env.target_platform.transform_package(name)
+
+        compile_options = opts.option_list(
+            opts.include_dir(self.header(i, include_path))
+            for i in iterate(headers)
+        )
+        if not compile_options:
+            compile_options.extend(opts.include_dir(
+                HeaderDirectory(i, None, system=True)
+            ) for i in iterate(include_path))
+
+        link_options = opts.option_list(
+            opts.lib(self.library(i, kind, library_path))
+            for i in iterate(lib_names)
+        )
+
+        path_note = ' in {!r}'.format(
+            link_options[0].library.path.parent().string()
+        ) if link_options else ''
+        log.info('found package {!r} via path-search{}'
+                 .format(name, path_note))
+        return CommonPackage(name, format, compile_options, link_options)
+
     def resolve(self, name, version, kind, headers, lib_names):
         format = self.builder.object_format
-        try:
-            return pkg_config.resolve(self.env, name, format, version, kind)
-        except (OSError, PackageResolutionError):
-            if lib_names is default_sentinel:
-                lib_names = self.env.target_platform.transform_package(name)
-
-            compile_options = opts.option_list(
-                opts.include_dir(self.header(i)) for i in iterate(headers)
+        usage = mopack.try_usage(self.env, name)
+        if usage['type'] == 'pkg-config':
+            return pkg_config.resolve(self.env, name, format, version, kind,
+                                      usage.get('path'))
+        elif usage['type'] == 'path':
+            return self._resolve_path(
+                name, format, kind, headers, lib_names,
+                [abspath(usage['include_path'])],
+                [abspath(usage['library_path'])]
             )
-            link_options = opts.option_list(
-                opts.lib(self.library(i, kind)) for i in iterate(lib_names)
-            )
-
-            path_note = ' in {!r}'.format(
-                link_options[0].library.path.parent().string()
-            ) if link_options else ''
-            log.info('found package {!r} via path-search{}'
-                     .format(name, path_note))
-            return CommonPackage(name, format, compile_options, link_options)
+        elif usage['type'] == 'system':
+            try:
+                return pkg_config.resolve(self.env, name, format, version,
+                                          kind)
+            except (OSError, PackageResolutionError):
+                return self._resolve_path(name, format, kind, headers,
+                                          lib_names)
+        else:
+            raise PackageResolutionError('unsupported package usage {!r}'
+                                         .format(usage['type']))

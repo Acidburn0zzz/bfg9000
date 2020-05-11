@@ -2,7 +2,7 @@ import os
 import re
 from itertools import chain
 
-from . import pkg_config
+from . import mopack, pkg_config
 from .. import log, options as opts, safe_str, shell
 from .ar import ArLinker
 from .common import (BuildCommand, Builder, check_which, darwin_install_name,
@@ -819,33 +819,57 @@ class CcPackageResolver:
         raise PackageResolutionError("unable to find library '{}'"
                                      .format(name))
 
+    def _resolve_path(self, name, format, kind, headers, lib_names,
+                      include_path=None, library_path=None):
+        compile_options = opts.option_list()
+        link_options = opts.option_list()
+
+        compile_options.extend(opts.include_dir(self.header(i, include_path))
+                               for i in iterate(headers))
+        if not compile_options:
+            compile_options.extend(opts.include_dir(
+                HeaderDirectory(i, None, system=True)
+            ) for i in iterate(include_path))
+
+        found_lib_path = None
+        if lib_names is default_sentinel:
+            lib_names = self.env.target_platform.transform_package(name)
+        for i in iterate(lib_names):
+            if isinstance(i, Framework):
+                link_options.append(opts.lib(i))
+            elif i == 'pthread':
+                compile_options.append(opts.pthread())
+                link_options.append(opts.pthread())
+            else:
+                lib = self.library(i, kind, library_path)
+                if not found_lib_path:
+                    found_lib_path = lib.path.parent().string()
+                link_options.append(opts.lib(lib))
+
+        path_note = ' in {!r}'.format(found_lib_path) if found_lib_path else ''
+        log.info('found package {!r} via path-search{}'
+                 .format(name, path_note))
+        return CommonPackage(name, format, compile_options, link_options)
+
     def resolve(self, name, version, kind, headers, lib_names):
         format = self.builder.object_format
-        try:
-            return pkg_config.resolve(self.env, name, format, version, kind)
-        except (OSError, PackageResolutionError):
-            compile_options = opts.option_list()
-            link_options = opts.option_list()
-
-            compile_options.extend(opts.include_dir(self.header(i))
-                                   for i in iterate(headers))
-
-            lib_path = None
-            if lib_names is default_sentinel:
-                lib_names = self.env.target_platform.transform_package(name)
-            for i in iterate(lib_names):
-                if isinstance(i, Framework):
-                    link_options.append(opts.lib(i))
-                elif i == 'pthread':
-                    compile_options.append(opts.pthread())
-                    link_options.append(opts.pthread())
-                else:
-                    lib = self.library(i, kind)
-                    if not lib_path:
-                        lib_path = lib.path.parent().string()
-                    link_options.append(opts.lib(lib))
-
-            path_note = ' in {!r}'.format(lib_path) if lib_path else ''
-            log.info('found package {!r} via path-search{}'
-                     .format(name, path_note))
-            return CommonPackage(name, format, compile_options, link_options)
+        usage = mopack.try_usage(self.env, name)
+        if usage['type'] == 'pkg-config':
+            return pkg_config.resolve(self.env, name, format, version, kind,
+                                      usage.get('path'))
+        elif usage['type'] == 'path':
+            return self._resolve_path(
+                name, format, kind, headers, lib_names,
+                [abspath(usage['include_path'])],
+                [abspath(usage['library_path'])]
+            )
+        elif usage['type'] == 'system':
+            try:
+                return pkg_config.resolve(self.env, name, format, version,
+                                          kind)
+            except (OSError, PackageResolutionError):
+                return self._resolve_path(name, format, kind, headers,
+                                          lib_names)
+        else:
+            raise PackageResolutionError('unsupported package usage {!r}'
+                                         .format(usage['type']))

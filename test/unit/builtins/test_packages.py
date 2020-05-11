@@ -11,34 +11,49 @@ from bfg9000.build_inputs import BuildInputs
 from bfg9000.builtins import builtin, packages, project  # noqa
 from bfg9000.exceptions import PackageResolutionError, PackageVersionError
 from bfg9000.file_types import Directory, HeaderDirectory
+from bfg9000.iterutils import first
 from bfg9000.packages import CommonPackage, Framework
 from bfg9000.path import abspath, Path, Root
 from bfg9000.versioning import SpecifierSet, Version
 
 
-def mock_which(*args, **kwargs):
-    return [os.path.abspath('/command')]
+def mock_which(names, *args, **kwargs):
+    return [os.path.abspath('/' + first(first(names)))]
 
 
 def mock_execute(args, **kwargs):
-    if args[-1] == '--version':
-        return ('gcc (Ubuntu 5.4.0-6ubuntu1~16.04.9) 5.4.0 20160609\n' +
-                'Copyright (C) 2015 Free Software Foundation, Inc.\n')
-    elif args[-1] == '-Wl,--version':
-        return '', '/usr/bin/ld --version\n'
-    elif args[-1] == '-print-search-dirs':
-        return 'libraries: =/usr/lib\n'
-    elif args[-1] == '-print-sysroot':
-        return '/\n'
-    elif args[-1] == '--verbose':
-        return 'SEARCH_DIR("/usr")\n'
-    elif args[-1] == '/?':
-        return ('Microsoft (R) C/C++ Optimizing Compiler Version ' +
-                '19.12.25831 for x86')
-    elif args[-1] == '--modversion':
-        return '1.2.3\n'
-    elif args[-1] == '--variable=pcfiledir':
-        return '/path/to/pkg-config'
+    prog = os.path.basename(args[0])
+    if prog in ('cc', 'c++'):
+        if args[-1] == '--version':
+            return ('gcc (Ubuntu 5.4.0-6ubuntu1~16.04.9) 5.4.0 20160609\n' +
+                    'Copyright (C) 2015 Free Software Foundation, Inc.\n')
+        elif args[-1] == '/?':
+            raise OSError()
+        elif args[-1] == '-Wl,--version':
+            return '', '/usr/bin/ld --version\n'
+        elif args[-1] == '-print-search-dirs':
+            return 'libraries: =/usr/lib\n'
+        elif args[-1] == '-print-sysroot':
+            return '/\n'
+    elif prog == 'ld':
+        if args[-1] == '--verbose':
+            return 'SEARCH_DIR("/usr")\n'
+    elif prog == 'cl':
+        if args[-1] == '--version':
+            raise OSError()
+        elif args[-1] == '/?':
+            return ('Microsoft (R) C/C++ Optimizing Compiler Version ' +
+                    '19.12.25831 for x86')
+    elif prog == 'mopack':
+        if args[1] == 'usage':
+            return '{"type": "system"}\n'
+    elif prog == 'pkg-config':
+        if args[-1] == '--modversion':
+            return '1.2.3\n'
+        elif args[-1] == '--variable=pcfiledir':
+            return '/path/to/pkg-config'
+
+    raise ValueError('unknown command: {}'.format(args))
 
 
 class TestFramework(TestCase):
@@ -83,6 +98,8 @@ class TestFramework(TestCase):
 
 
 class TestPackage(BuiltinTest):
+    clear_variables = True
+
     def test_name(self):
         with mock.patch('bfg9000.shell.execute', mock_execute), \
              mock.patch('bfg9000.shell.which', mock_which), \
@@ -209,7 +226,7 @@ class TestBoostPackage(TestCase):
 
         with mock.patch('bfg9000.builtins.packages._boost_version',
                         return_value=Version('1.23')), \
-             mock.patch('bfg9000.shell.which', return_value=['command']), \
+             mock.patch('bfg9000.shell.which', mock_which), \
              mock.patch('bfg9000.shell.execute', mock_execute), \
              mock.patch('bfg9000.tools.cc.exists', mock_exists):  # noqa
             pkg = context['boost_package']('thread')
@@ -238,7 +255,7 @@ class TestBoostPackage(TestCase):
         with mock.patch('bfg9000.builtins.find._walk_flat', mock_walk), \
              mock.patch('bfg9000.builtins.packages._boost_version',
                         return_value=Version('1.23')), \
-             mock.patch('bfg9000.shell.which', return_value=['command']), \
+             mock.patch('bfg9000.shell.which', mock_which), \
              mock.patch('bfg9000.shell.execute', mock_execute), \
              mock.patch('bfg9000.tools.msvc.exists', mock_exists):  # noqa
             pkg = context['boost_package']('thread')
@@ -282,7 +299,7 @@ class TestSystemExecutable(BuiltinTest):
         with mock.patch('bfg9000.builtins.packages.which', mock_which):
             self.assertEqual(
                 self.context['system_executable']('name'),
-                file_types.Executable(abspath('/command'),
+                file_types.Executable(abspath('/name'),
                                       self.env.target_platform.object_format)
             )
 
@@ -290,5 +307,5 @@ class TestSystemExecutable(BuiltinTest):
         with mock.patch('bfg9000.builtins.packages.which', mock_which):
             self.assertEqual(
                 self.context['system_executable']('name', 'format'),
-                file_types.Executable(abspath('/command'), 'format')
+                file_types.Executable(abspath('/name'), 'format')
             )

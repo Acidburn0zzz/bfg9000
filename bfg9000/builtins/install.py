@@ -58,8 +58,7 @@ def install(context, *args):
 
     context['default'](*args)
     for i in iterate_each(args):
-        if can_inst:
-            context.build['install'].add(i)
+        context.build['install'].add(i)
 
     return unlistify(tuple(
         map_iterable(lambda x: installify(x, context.env), i) for i in args
@@ -85,7 +84,9 @@ def _doppel_cmd(env, buildfile):
     return wrapper
 
 
-def _install_commands(install_outputs, doppel):
+def _install_files(install_outputs, buildfile, env):
+    doppel = _doppel_cmd(env, buildfile)
+
     def install_line(output):
         cmd = doppel(output.install_kind)
         if isinstance(output, Directory):
@@ -107,7 +108,13 @@ def _install_commands(install_outputs, doppel):
             [i.post_install for i in install_outputs if i.post_install])
 
 
-def _uninstall_command(install_outputs, rm):
+def _install_mopack(env):
+    if env.mopack:
+        return [env.tool('mopack')('deploy', directory=path.Path('.'))]
+    return []
+
+
+def _uninstall_files(install_outputs, env):
     def uninstall_line(output):
         if isinstance(output, Directory):
             dst = file_install_path(output)
@@ -115,60 +122,79 @@ def _uninstall_command(install_outputs, rm):
                     iterate(output.files)]
         return [file_install_path(output)]
 
-    return rm(flatten(uninstall_line(i) for i in install_outputs))
+    if install_outputs:
+        rm = env.tool('rm')
+        return [rm(flatten(uninstall_line(i) for i in install_outputs))]
+    return []
 
 
 @make.post_rule
 def make_install_rule(build_inputs, buildfile, env):
-    install_outputs = build_inputs['install']
-    if not install_outputs:
+    if not can_install(env):
         return
 
-    for i in path.InstallRoot:
-        buildfile.variable(make.path_vars[i], env.install_dirs[i],
-                           make.Section.path)
-    if path.DestDir.destdir in make.path_vars:
-        buildfile.variable(make.path_vars[path.DestDir.destdir],
-                           env.variables.get('DESTDIR', ''), make.Section.path)
+    install_outputs = build_inputs['install']
+    install_files = _install_files(install_outputs, buildfile, env)
+    uninstall_files = _uninstall_files(install_outputs, env)
 
-    buildfile.rule(
-        target='install',
-        deps='all',
-        recipe=_install_commands(install_outputs, _doppel_cmd(env, buildfile)),
-        phony=True
-    )
-    buildfile.rule(
-        target='uninstall',
-        recipe=[_uninstall_command(install_outputs, env.tool('rm'))],
-        phony=True
-    )
+    if install_files or uninstall_files:
+        for i in path.InstallRoot:
+            buildfile.variable(make.path_vars[i], env.install_dirs[i],
+                               make.Section.path)
+        if path.DestDir.destdir in make.path_vars:
+            buildfile.variable(make.path_vars[path.DestDir.destdir],
+                               env.variables.get('DESTDIR', ''),
+                               make.Section.path)
+
+    install_commands = install_files + _install_mopack(env)
+
+    if install_commands:
+        buildfile.rule(
+            target='install',
+            deps='all',
+            recipe=install_commands,
+            phony=True
+        )
+    if uninstall_files:
+        buildfile.rule(
+            target='uninstall',
+            recipe=uninstall_files,
+            phony=True
+        )
 
 
 @ninja.post_rule
 def ninja_install_rule(build_inputs, buildfile, env):
-    install_outputs = build_inputs['install']
-    if not install_outputs:
+    if not can_install(env):
         return
 
-    for i in path.InstallRoot:
-        buildfile.variable(ninja.path_vars[i], env.install_dirs[i],
-                           ninja.Section.path)
-    if path.DestDir.destdir in ninja.path_vars:
-        buildfile.variable(ninja.path_vars[path.DestDir.destdir],
-                           env.variables.get('DESTDIR', ''),
-                           ninja.Section.path)
+    install_outputs = build_inputs['install']
+    install_files = _install_files(install_outputs, buildfile, env)
+    uninstall_files = _uninstall_files(install_outputs, env)
 
-    install = _install_commands(install_outputs, _doppel_cmd(env, buildfile))
-    ninja.command_build(
-        buildfile, env,
-        output='install',
-        inputs=['all'],
-        command=shell.join_lines(install),
-        phony=True
-    )
-    ninja.command_build(
-        buildfile, env,
-        output='uninstall',
-        command=_uninstall_command(install_outputs, env.tool('rm')),
-        phony=True
-    )
+    if install_files or uninstall_files:
+        for i in path.InstallRoot:
+            buildfile.variable(ninja.path_vars[i], env.install_dirs[i],
+                               ninja.Section.path)
+        if path.DestDir.destdir in ninja.path_vars:
+            buildfile.variable(ninja.path_vars[path.DestDir.destdir],
+                               env.variables.get('DESTDIR', ''),
+                               ninja.Section.path)
+
+    install_commands = install_files + _install_mopack(env)
+
+    if install_commands:
+        ninja.command_build(
+            buildfile, env,
+            output='install',
+            inputs=['all'],
+            command=shell.join_lines(install_commands),
+            phony=True
+        )
+    if uninstall_files:
+        ninja.command_build(
+            buildfile, env,
+            output='uninstall',
+            command=shell.join_lines(uninstall_files),
+            phony=True
+        )

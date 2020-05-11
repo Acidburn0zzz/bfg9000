@@ -114,7 +114,8 @@ before_install:
   - export JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64
   - unset _JAVA_OPTIONS
 install:
-  - ${PIP} install codecov .[test]
+  - git clone https://github.com/jimporter/mopack.git
+  - ${PIP} install ./mopack codecov .[test]
 script:
   - ${PYTHON} setup.py coverage -q
 after_success:

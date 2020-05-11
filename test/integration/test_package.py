@@ -18,6 +18,18 @@ class TestPackage(IntegrationTest):
             self.assertOutput([executable('program')], '')
 
 
+class TestPackageNoMopack(IntegrationTest):
+    def __init__(self, *args, **kwargs):
+        super().__init__(os.path.join(examples_dir, '04_package'),
+                         env={'MOPACK': 'nonexist'}, *args, **kwargs)
+
+    def test_build(self):
+        self.build()
+        # XXX: This fails on MinGW (not sure why)...
+        if not is_mingw:
+            self.assertOutput([executable('program')], '')
+
+
 class TestSystemPackage(IntegrationTest):
     def __init__(self, *args, **kwargs):
         super().__init__(os.path.join(examples_dir, '04_package'),

@@ -174,9 +174,10 @@ class PkgConfigPackage(Package):
         )
 
 
-def resolve(env, name, format, version=None, kind=PackageKind.any):
+def resolve(env, name, format, version=None, kind=PackageKind.any,
+            search_path=None):
     package = PkgConfigPackage(name, format, version, kind,
-                               env.tool('pkg_config'))
+                               env.tool('pkg_config'), search_path=search_path)
     log.info('found package {!r} version {} via pkg-config in {!r}'
              .format(name, package.version, package.path()))
     return package

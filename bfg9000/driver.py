@@ -1,9 +1,7 @@
 import os
 import sys
 
-from . import build
-from . import log
-from . import path
+from . import build, log, path
 from .arguments import parser as argparse
 from .backends import list_backends
 from .environment import Environment, EnvVersionError
@@ -152,6 +150,8 @@ def add_configure_args(parser):
                        help='build shared libraries (default: enabled)')
     build.add_argument('--static', action='enable', default=False,
                        help='build static libraries (default: disabled)')
+    build.add_argument('--no-resolve-packages', action='store_true',
+                       help='skip resolution of packages')
 
     common_path_help = 'installation path for {} (default: {{}})'
     path_help = {
@@ -190,6 +190,10 @@ def configure(parser, subparser, args, extra):
         if args.toolchain:
             build.load_toolchain(env, args.toolchain)
         finalize_environment(env, args, extra)
+
+        if not args.no_resolve_packages:
+            env.mopack = build.resolve_packages(env)
+
         env.save(args.builddir.string())
 
         build_inputs = build.configure_build(env)
@@ -211,6 +215,8 @@ def refresh(parser, subparser, args, extra):
         env = Environment.load(args.builddir.string())
         if env.toolchain.path:
             build.load_toolchain(env, env.toolchain.path, reload=True)
+
+        build.resolve_packages(env)
         env.save(args.builddir.string())
 
         backend = list_backends()[env.backend]
